@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.GrandExchangeOfferState;
+import net.runelite.api.ItemComposition;
 import net.runelite.api.MenuAction;
 import net.runelite.api.VarClientStr;
 import net.runelite.api.gameval.InterfaceID;
@@ -12,6 +13,7 @@ import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.plugins.microbot.Microbot;
+import net.runelite.client.plugins.microbot.globval.WidgetIndices;
 import net.runelite.client.plugins.microbot.util.bank.Rs2Bank;
 import net.runelite.client.plugins.microbot.util.bank.enums.BankLocation;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
@@ -65,9 +67,11 @@ public class Rs2GrandExchange {
      */
     public static void backToOverview() {
         Microbot.status = "Back to overview";
-        if (!isOpen() && !isOfferScreenOpen()) return;
-        Rs2Widget.clickWidget(30474244);
-        sleepUntilOnClientThread(() -> !isOfferScreenOpen());
+        if (!isOpen()) return;
+        if (isOfferScreenOpen()) {
+            Rs2Widget.clickWidget(30474244);
+            sleepUntilOnClientThread(() -> !isOfferScreenOpen());
+        }
     }
 
     /**
@@ -87,7 +91,7 @@ public class Rs2GrandExchange {
      */
     public static boolean isOfferScreenOpen() {
         Microbot.status = "Checking if Offer is open";
-        return Rs2Widget.getWidget(ComponentID.GRAND_EXCHANGE_OFFER_CONTAINER) != null;
+        return Rs2Widget.isWidgetVisible(ComponentID.GRAND_EXCHANGE_OFFER_DESCRIPTION);
     }
 
     /**
@@ -119,7 +123,21 @@ public class Rs2GrandExchange {
      * @return true if item has been bought succesfully
      */
     public static boolean buyItem(String itemName, int price, int quantity) {
-        return buyItem(itemName, itemName, price, quantity);
+        Pair<GrandExchangeSlots, Integer> slot = getAvailableSlot();
+        return buyItem(itemName, itemName, price, quantity, slot.getRight());
+    }
+
+    public static boolean buyItem(String itemName, int price, int quantity, int slot) {
+        return buyItem(itemName, itemName, price, quantity, slot);
+    }
+
+    public static boolean buyItem(int itemId, int price, int quantity, int slot) {
+        ItemComposition itemComp = Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getItemDefinition(itemId)).orElse(null);
+        if (itemComp != null) {
+            String itemName = itemComp.getName();
+            return buyItem(itemName, itemName, price, quantity, slot);
+        }
+        return false;
     }
 
     /**
@@ -129,30 +147,31 @@ public class Rs2GrandExchange {
      * @param quantity   quantity of item to buy
      * @return true if item has been bought succesfully
      */
-    public static boolean buyItem(String itemName, String searchTerm, int price, int quantity) {
+    public static boolean buyItem(String itemName, String searchTerm, int price, int quantity, int slot) {
         try {
             if (useGrandExchange()) return false;
 
-            Pair<GrandExchangeSlots, Integer> slot = getAvailableSlot();
-            if (slot.getLeft() == null) {
-                if (hasBoughtOffer()) {
-                    collectToBank();
-                }
-                return false;
-            }
-            Widget buyOffer = getOfferBuyButton(slot.getLeft());
+            Widget buyOffer = getOfferBuyButton(GrandExchangeSlots.values()[slot]);
             if (buyOffer == null) return false;
 
             Rs2Widget.clickWidgetFast(buyOffer);
-            sleepUntil(Rs2GrandExchange::isOfferTextVisible, 5000);
-            sleepUntil(() -> Rs2Widget.hasWidget("What would you like to buy?"));
+            if (!sleepUntil(Rs2GrandExchange::isOfferTextVisible, 5000)) {
+                throw new Exception("Offer text was not visible after 5 seconds");
+            }
+            if (!sleepUntil(() -> Rs2Widget.hasWidget("What would you like to buy?"))) {
+                throw new Exception("Buy queyr was not visible after 3 seconds");
+            }
             Rs2Keyboard.typeString(searchTerm);
-            sleepUntil(() -> !Rs2Widget.hasWidget("Start typing the name"), 5000); //GE Search Results
-            sleep(1200);
+            //GE Search Results
+            if (!sleepUntil(() -> !Rs2Widget.hasWidget("Start typing the name"), 5000)) {
+                throw new Exception("Search result was not shown after 5 seconds");
+            }
             Pair<Widget, Integer> itemResult = getSearchResultWidget(itemName);
             if (itemResult != null) {
                 Rs2Widget.clickWidgetFast(itemResult.getLeft(), itemResult.getRight(), 1);
-                sleepUntil(() -> getPricePerItemButton_X() != null);
+                if (!sleepUntil(() -> getPricePerItemButton_X() != null)) {
+                    throw new Exception("Buy offer was not visible after 3 seconds");
+                }
             }
             Widget pricePerItemButtonX = getPricePerItemButton_X();
             if (pricePerItemButtonX != null) {
@@ -165,7 +184,7 @@ public class Rs2GrandExchange {
                     return true;
                 }
                 else {
-                    buyItem(itemName, searchTerm, price, quantity);
+                    buyItem(itemName, price, quantity, slot);
                 }
 
                 return true;
@@ -344,6 +363,15 @@ public class Rs2GrandExchange {
                 boolean isAtGe = walkToGrandExchange();
                 return !isAtGe;
             }
+        }
+        return false;
+    }
+
+    public static boolean sellItem(int itemId, int price, int quantity) {
+        ItemComposition itemComp = Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getItemDefinition(itemId)).orElse(null);
+        if (itemComp != null) {
+            String itemName = itemComp.getName();
+            return sellItem(itemName, price, quantity);
         }
         return false;
     }
@@ -745,6 +773,10 @@ public class Rs2GrandExchange {
         return Optional.ofNullable(parent).map(p -> p.getChild(2).isSelfHidden()).orElse(false);
     }
 
+    public static boolean isSlotDisabled(GrandExchangeSlots slot) {
+        return !Rs2Player.isMember() && slot.ordinal() > 2;
+    }
+
     public static Widget getOfferBuyButton(GrandExchangeSlots slot) {
         Widget parent = getSlot(slot);
         return Optional.ofNullable(parent).map(p -> p.getChild(0)).orElse(null);
@@ -761,7 +793,7 @@ public class Rs2GrandExchange {
         GrandExchangeSlots availableSlot = null;
         for (int i = 0; i < maxSlots; i++) {
             GrandExchangeSlots slot = GrandExchangeSlots.values()[i];
-            if (Rs2GrandExchange.isSlotAvailable(slot)) {
+            if (Rs2GrandExchange.isSlotAvailable(slot) && !Rs2GrandExchange.isSlotDisabled(slot)) {
                 if (availableSlot == null) {
                     availableSlot = slot;
                 }

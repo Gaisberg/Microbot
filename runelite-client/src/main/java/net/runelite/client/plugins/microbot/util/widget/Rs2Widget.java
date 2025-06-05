@@ -89,6 +89,14 @@ public class Rs2Widget {
         }).orElse(false);
     }
 
+    public static boolean isWidgetVisible(int widgetId, int childId, int childIndex) {
+        return  Microbot.getClientThread().runOnClientThreadOptional(() -> {
+            Widget widget = getWidget(widgetId, childId, childIndex);
+            if (widget == null) return false;
+            return !widget.isHidden();
+        }).orElse(false);
+    }
+
     public static Widget getWidget(@Component int id) {
         return Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getWidget(id)).orElse(null);
     }
@@ -112,6 +120,15 @@ public class Rs2Widget {
     public static Widget getWidget(int id, int child) {
         return Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getWidget(id, child))
                 .orElse(null);
+    }
+
+    public static Widget getWidget(int id, int child, int index) {
+        Widget widget = Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getWidget(id, child))
+                .orElse(null);
+        if (widget != null) {
+            return widget.getChild(index);
+        }
+        return null;
     }
 
     public static int getChildWidgetSpriteID(int id, int childId) {
@@ -138,6 +155,13 @@ public class Rs2Widget {
         Widget widget = Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getWidget(id)).orElse(null);;
         if (widget == null) return false;
         Microbot.getMouse().click(widget.getChild(childId).getBounds());
+        return true;
+    }
+
+    public static boolean clickWidget(int id, int childId, int index) {
+        Widget widget = Microbot.getClientThread().runOnClientThreadOptional(() -> Microbot.getClient().getWidget(id, childId)).orElse(null);;
+        if (widget == null) return false;
+        Microbot.getMouse().click(widget.getChild(index).getBounds());
         return true;
     }
 
